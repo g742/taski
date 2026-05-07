@@ -15,7 +15,7 @@ app.get('/health', (req, res) => {
 
 // Main route
 app.get('/', (req, res) => {
-  res.send(`Hello new golu from Node.js on ${DEPLOYMENT.toUpperCase()} Deployment!`);
+  res.send(`Hello World from Node.js on ${DEPLOYMENT.toUpperCase()} Deployment!`);
 });
 
 // IMPORTANT: bind to 0.0.0.0 for Docker

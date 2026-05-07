@@ -4,16 +4,13 @@ WORKDIR /usr/src/app
 
 COPY package*.json ./
 
-# Install dependencies cleanly
-RUN npm ci --omit=dev
-
-# Force vulnerable transitive dependency update
-RUN npm install tar@latest --save-exact
+RUN npm ci --omit=dev && \
+    npm cache clean --force
 
 COPY . .
 
-# Create non-root user
-RUN addgroup -S nodejs && adduser -S nodeuser -G nodejs
+RUN addgroup -S nodejs && \
+    adduser -S nodeuser -G nodejs
 
 RUN chown -R nodeuser:nodejs /usr/src/app
 

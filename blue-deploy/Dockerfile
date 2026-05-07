@@ -1,34 +1,24 @@
-# Use a smaller and more secure official Node.js image
 FROM node:20-alpine
 
-# Create app directory
 WORKDIR /usr/src/app
 
-# Copy dependency files first
 COPY package*.json ./
 
-# Install only production dependencies
-RUN npm ci --omit=dev && \
-    npm cache clean --force
+# Install dependencies cleanly
+RUN npm ci --omit=dev
 
-# Copy app source
+# Force vulnerable transitive dependency update
+RUN npm install tar@latest --save-exact
+
 COPY . .
 
 # Create non-root user
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+RUN addgroup -S nodejs && adduser -S nodeuser -G nodejs
 
-# Change ownership
-RUN chown -R appuser:appgroup /usr/src/app
+RUN chown -R nodeuser:nodejs /usr/src/app
 
-# Run as non-root user
-USER appuser
+USER nodeuser
 
-# Expose application port
 EXPOSE 3000
 
-# Optional healthcheck
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
-
-# Start application
 CMD ["node", "app.js"]

@@ -1,20 +1,34 @@
-# Use the official Node.js LTS image as the base
-FROM node:20
+# Use a smaller and more secure official Node.js image
+FROM node:20-alpine
 
-# Set the working directory inside the container
+# Create app directory
 WORKDIR /usr/src/app
 
-# Copy package.json and package-lock.json first (for better caching)
+# Copy dependency files first
 COPY package*.json ./
 
-# Install dependencies
-RUN npm install --production
+# Install only production dependencies
+RUN npm ci --omit=dev && \
+    npm cache clean --force
 
-# Copy the rest of the application code
+# Copy app source
 COPY . .
 
-# Expose the port your app runs on
+# Create non-root user
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+# Change ownership
+RUN chown -R appuser:appgroup /usr/src/app
+
+# Run as non-root user
+USER appuser
+
+# Expose application port
 EXPOSE 3000
 
-# Start the application
+# Optional healthcheck
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3000', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+
+# Start application
 CMD ["node", "app.js"]

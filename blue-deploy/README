@@ -1,0 +1,9 @@
+======================================   CICD Deployment ===========================
+
+1 - Go to Structural diagram in my git repo for better understanding.
+2 - Dockerhub password and Sonarqube TOKEN in (Jenkins Credentials ) through binding credentials
+3 - Sonarqube in container in my local machine.
+4 - Application deploy on docker container.
+5 - Trivvy installed on localhost machine.
+6 - Jenkins also setup on local host
+

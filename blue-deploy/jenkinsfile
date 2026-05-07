@@ -1,0 +1,177 @@
+pipeline {
+    agent any
+
+    environment {
+        GITHUB_REPO    = 'https://github.com/g742/taski.git'
+        BRANCH         = 'main'
+
+        DOCKERHUB_REPO = 'golushbz/my-app'
+        IMAGE_TAG      = "${BUILD_NUMBER}"
+
+        ACTIVE_FILE    = '/tmp/active_container.txt'
+
+        SONAR_HOST_URL = 'http://localhost:9000'
+    }
+
+    triggers {
+        githubPush()
+    }
+
+    stages {
+
+        stage('Checkout from GitHub') {
+            steps {
+                git branch: "${BRANCH}",
+                    credentialsId: 'github-creds',
+                    url: "${GITHUB_REPO}"
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            steps {
+                withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                    sh """
+                        sonar-scanner \
+                        -Dsonar.projectKey=taski-app \
+                        -Dsonar.projectName=taski-app \
+                        -Dsonar.sources=. \
+                        -Dsonar.host.url=${SONAR_HOST_URL} \
+                        -Dsonar.login=${SONAR_TOKEN}
+                    """
+                }
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh """
+                    docker build --pull -t ${DOCKERHUB_REPO}:${IMAGE_TAG} blue-deploy/
+                    docker tag ${DOCKERHUB_REPO}:${IMAGE_TAG} ${DOCKERHUB_REPO}:latest
+                """
+            }
+        }
+
+        stage('Trivy Scan Docker Image') {
+            steps {
+                sh """
+                    trivy image \
+                      --scanners vuln \
+                      --severity HIGH,CRITICAL \
+                      --ignore-unfixed \
+                      --exit-code 0 \
+                      --cache-dir /tmp/trivycache \
+                      ${DOCKERHUB_REPO}:${IMAGE_TAG}
+                """
+            }
+        }
+
+        stage('Login & Push to DockerHub') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'USER',
+                    passwordVariable: 'PASS'
+                )]) {
+                    sh """
+                        echo ${PASS} | docker login -u ${USER} --password-stdin
+                        docker push ${DOCKERHUB_REPO}:${IMAGE_TAG}
+                        docker push ${DOCKERHUB_REPO}:latest
+                    """
+                }
+            }
+        }
+
+        stage('Determine Active/Inactive Containers') {
+            steps {
+                script {
+                    env.ACTIVE = sh(
+                        script: "cat ${ACTIVE_FILE} 2>/dev/null || echo blue",
+                        returnStdout: true
+                    ).trim()
+
+                    env.INACTIVE = (env.ACTIVE == "blue") ? "green" : "blue"
+                    env.INACTIVE_PORT = (env.INACTIVE == "blue") ? "3001" : "3002"
+
+                    echo "Active container: ${env.ACTIVE}"
+                    echo "Inactive container: ${env.INACTIVE}"
+                    echo "Deploying on port: ${env.INACTIVE_PORT}"
+                }
+            }
+        }
+
+        stage('Deploy to Inactive Slot') {
+            steps {
+                sh """
+                    docker pull ${DOCKERHUB_REPO}:${IMAGE_TAG}
+
+                    docker stop app-${env.INACTIVE} || true
+                    docker rm app-${env.INACTIVE} || true
+
+                    docker run -d \
+                      --name app-${env.INACTIVE} \
+                      -p ${env.INACTIVE_PORT}:3000 \
+                      -e DEPLOYMENT=${env.INACTIVE} \
+                      ${DOCKERHUB_REPO}:${IMAGE_TAG}
+                """
+            }
+        }
+
+        stage('Health Check') {
+            steps {
+                sh """
+                    for i in {1..10}; do
+                        if curl -f http://localhost:${env.INACTIVE_PORT}/health; then
+                            echo "Health check passed"
+                            exit 0
+                        fi
+
+                        echo "Health check failed... retrying"
+                        sleep 5
+                    done
+
+                    echo "Application failed health check"
+                    docker logs app-${env.INACTIVE} || true
+                    exit 1
+                """
+            }
+        }
+
+        stage('Switch Traffic (Blue-Green Flip)') {
+            steps {
+                sh """
+                    echo ${env.INACTIVE} > ${ACTIVE_FILE}
+                """
+                echo "Traffic switched to ${env.INACTIVE}"
+            }
+        }
+
+        stage('Cleanup Old Container') {
+            steps {
+                script {
+                    def oldContainer = (env.INACTIVE == "blue") ? "green" : "blue"
+
+                    sh """
+                        docker stop app-${oldContainer} || true
+                        docker rm app-${oldContainer} || true
+                    """
+
+                    echo "Old container ${oldContainer} removed"
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Pipeline executed successfully'
+        }
+
+        failure {
+            echo 'Pipeline failed'
+        }
+
+        always {
+            cleanWs()
+        }
+    }
+}

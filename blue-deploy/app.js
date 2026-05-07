@@ -1,17 +1,18 @@
-// Import express
 const express = require('express');
 const app = express();
 
-const port = 3000;
-
-const DEPLOYMENT = process.env.DEPLOYMENT || "UNKNOWN";
+const port = process.env.PORT || 3000;
+const DEPLOYMENT = (process.env.DEPLOYMENT || "UNKNOWN").toUpperCase();
 
 app.get('/health', (req, res) => {
-  res.status(200).send('OK');
+  res.status(200).json({
+    status: "UP",
+    deployment: DEPLOYMENT
+  });
 });
 
 app.get('/', (req, res) => {
-  res.send(`Hello World from Node.js on ${DEPLOYMENT.toUpperCase()} Deployment!`);
+  res.send(`Hello World from Node.js on ${DEPLOYMENT} Deployment!`);
 });
 
 app.listen(port, '0.0.0.0', () => {
